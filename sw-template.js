@@ -67,7 +67,7 @@ self.addEventListener("fetch", event => {
                 ]);
 								const networkResponse = ipfsFetch.then(networkResponse => {
                   if(!networkResponse) return new Response({ status: 404, statusText: "not found" });
-									if(networkResponse.status == 200) cache.put(event.request, networkResponse.clone()); // only cache if successful
+									if(networkResponse.status == 200) cache.put(event.request, networkResponse.clone()).catch(console.warn); // only cache if successful
 									return networkResponse;
 								}).catch(console.warn);
 								return networkResponse;
@@ -82,7 +82,7 @@ self.addEventListener("fetch", event => {
 						caches.open(cacheName).then(cache => 
 							cache.match(event.request).then(response => {
 								const networkResponse = fetch(event.request).then(networkResponse => {
-									if(response) cache.put(event.request, networkResponse.clone()); // only cache files previously in cache
+									if(response) cache.put(event.request, networkResponse.clone()).catch(console.warn); // only cache files previously in cache
 									return networkResponse;
 								}).catch(console.warn);
 								return response ?? networkResponse;

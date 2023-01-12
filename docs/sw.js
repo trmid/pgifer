@@ -1,4 +1,4 @@
-const cacheName = `0.1.0`; // Change value to force update
+const cacheName = `0.1.1`; // Change value to force update
 const filesToCache = `["./","build/bundle.js","build/bundle.css","CNAME","example.gif","favicon.png","gif.js","gif.js.map","gif.worker.js","gif.worker.js.map","icofont/fonts/icofont.woff","icofont/fonts/icofont.woff2","icofont/icofont.min.css","index.html"]`; // Generated filenames as string array
 
 self.addEventListener("install", event => {
@@ -67,7 +67,7 @@ self.addEventListener("fetch", event => {
                 ]);
 								const networkResponse = ipfsFetch.then(networkResponse => {
                   if(!networkResponse) return new Response({ status: 404, statusText: "not found" });
-									if(networkResponse.status == 200) cache.put(event.request, networkResponse.clone()); // only cache if successful
+									if(networkResponse.status == 200) cache.put(event.request, networkResponse.clone()).catch(console.warn); // only cache if successful
 									return networkResponse;
 								}).catch(console.warn);
 								return networkResponse;
@@ -82,7 +82,7 @@ self.addEventListener("fetch", event => {
 						caches.open(cacheName).then(cache => 
 							cache.match(event.request).then(response => {
 								const networkResponse = fetch(event.request).then(networkResponse => {
-									if(response) cache.put(event.request, networkResponse.clone()); // only cache files previously in cache
+									if(response) cache.put(event.request, networkResponse.clone()).catch(console.warn); // only cache files previously in cache
 									return networkResponse;
 								}).catch(console.warn);
 								return response ?? networkResponse;
