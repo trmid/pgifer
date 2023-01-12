@@ -5,11 +5,18 @@
 
 	// Variables:
 	let addresses = [""];
-  let pferPromises: Promise<{ metadata: any, image: string }>[][] = [[]];
+  let pferPromises: Promise<{ metadata: any, image: string }>[] = [];
+  let pferImages: HTMLImageElement[] = [];
+  let disabledPfers = new Set<string>();
   let runLog = "";
   let gifURI = "";
   let frameDuration = 100;
   let generating = false;
+  let rendering = false;
+  let typingAddresses = false;
+
+  // Check addresses after timeout
+  $: addresses && triggerAddressTimeout();
 
   // Ethereum Provider:
   const provider = new ethers.providers.JsonRpcProvider("https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161", 1);
@@ -30,10 +37,11 @@
     addresses = addresses.filter(a => !!a);
     runLog = "";
     gifURI = "";
-    pferPromises = addresses.map(a => []);
+    pferPromises = [];
+    pferImages = [];
+    disabledPfers = new Set();
 
     // Create debug vars:
-    let numPfers = 0;
     let numImagesLoaded = 0;
     let lastStep = "init";
 
@@ -47,18 +55,15 @@
       // Get pfer list:
       lastStep = "fetching";
       log("Fetching your pfers...");
-      let allPferPromises: typeof pferPromises[0] = [];
       for(let i = 0; i < addresses.length; i++) {
-        pferPromises[i] = (await pfers(addresses[i])).map(x => x.data());
-        allPferPromises = allPferPromises.concat(pferPromises[i]);
-        numPfers += pferPromises[i].length;
+        pferPromises = pferPromises.concat((await pfers(addresses[i])).map(x => x.data()));
       }
-      log(`${numPfers} pfers found!\n`);
+      log(`${pferPromises.length} pfers found!\n`);
 
       // Wait for all to be resolved:
       lastStep = "resolving";
       log("Resolving pfer data...");
-      const res = await Promise.all(allPferPromises);
+      const res = await Promise.all(pferPromises);
       res.sort((a,b) => {
         return a.metadata.attributes.filter((x: any) => x.trait_type === "Background")[0].value < 
           b.metadata.attributes.filter((x: any) => x.trait_type === "Background")[0].value ? 
@@ -69,8 +74,8 @@
       // Create image elements:
       lastStep = "loading";
       log("Fetching pfer images...");
-      const images = res.map(x => { const image = new Image(); image.src = x.image; return image; });
-      await Promise.all(images.map(x => new Promise<void>((resolve, reject) => {
+      pferImages = res.map(x => { const image = new Image(); image.src = x.image; return image; });
+      await Promise.all(pferImages.map(x => new Promise<void>((resolve, reject) => {
         x.onload = () => {
           numImagesLoaded++;
           resolve();
@@ -82,35 +87,49 @@
       // Create GIF:
       lastStep = "generating";
       log("Creating your personalized GIF. This may take a while...");
-      var gif = new GIF({
-        workers: 2,
-        quality: 10,
-        width: 1200,
-        height: 1200
-      });
-      
-      // Add image elements:
-      for(let i = 0; i < images.length; i++) {
-        gif.addFrame(images[i], { delay: frameDuration });
-      }
-      
-      // Render:
-      gif.on('finished', function(blob: any) {
-        gifURI = URL.createObjectURL(blob);
-        runLog = "";
-      });
-      gif.render();
+      gifURI = await renderGIF(pferImages);
+      runLog = "";
 
     } catch(err) {
       console.error(err);
       error("Failed to generate GIF... Please check the logs or reload the page and retry.");
-      if(lastStep === 'loading' && numImagesLoaded > numPfers / 2) {
+      if(lastStep === 'loading' && numImagesLoaded > pferPromises.length / 2) {
         log("<i>Note: It seems like most of your pfers loaded, but some of them may have resolved incorrectly. Please reload the page and try again.</i>");
       }
     } finally {
       generating = false;
     }
 	};
+
+  const renderGIF = async (images: HTMLImageElement[]) => {
+    return new Promise<string>((resolve, reject) => {
+      try {
+        rendering = true;
+        var gif = new GIF({
+          workers: 2,
+          quality: 10,
+          width: 1200,
+          height: 1200
+        });
+        
+        // Add image elements:
+        for(let i = 0; i < images.length; i++) {
+          gif.addFrame(images[i], { delay: frameDuration });
+        }
+        
+        // Render:
+        gif.on('finished', function(blob: any) {
+          rendering = false;
+          const uri = URL.createObjectURL(blob);
+          resolve(uri);
+        });
+        gif.render();
+      } catch(err) {
+        reject(err);
+        rendering = false;
+      }
+    });
+  };
 
 	const pfers = async(address: string): Promise<{ data: () => Promise<{ metadata: any, image: string }>, category: string }[]> => {
     const nftContracts: Record<string, { contract: string, category: string, unique?: boolean }> = {
@@ -198,6 +217,52 @@
     return addresses;
   };
 
+  let addressTimeout: NodeJS.Timeout | null = null;
+  const triggerAddressTimeout = () => {
+    typingAddresses = true;
+    if(addressTimeout) clearTimeout(addressTimeout);
+    addressTimeout = setTimeout(() => {
+      typingAddresses = false;
+    }, 800);
+  };
+
+  let dragIndex = -1;
+  const startDrag = (e: DragEvent, index: number) => {
+    e.dataTransfer?.setData("text", "" + index);
+    setTimeout(() => {
+      dragIndex = index;
+    }, 0);
+  };
+  let dragOverIndex = -1;
+  const dragOver = (index: number) => {
+    dragOverIndex = index;
+  };
+  const onDrop = (e: DragEvent, dropIndex: number) => {
+
+    // Swap images:
+    if(dragIndex > -1 && dropIndex > -1) {
+      if(!(dragIndex == dropIndex || dragIndex == dropIndex - 1)) {
+        const newImages: HTMLImageElement[] = [];
+        for(let i = 0; i < pferImages.length + 1; i++) {
+          if(i != dragIndex) {
+            if(i == dropIndex) {
+              newImages.push(pferImages[dragIndex]);
+            }
+            if(i < pferImages.length) {
+              newImages.push(pferImages[i]);
+            }
+          }
+        }
+        pferImages = newImages;
+      }
+    }
+    cancelDrag();
+  };
+  const cancelDrag = () => {
+    dragIndex = -1;
+    dragOverIndex = -1;
+  };
+
 </script>
 
 <!-- Title -->
@@ -207,13 +272,13 @@
 <div id="inputs">
   {#each addresses as address, i}
     <div class="address">
-      <input type="text" class="address-input" data-index={i} placeholder="Address or ENS (0x0...)" on:keypress={e => e.key === "Enter" ? addAddress() : null} bind:value={addresses[i]} class:invalid={address.length > 0 && !ethers.utils.isAddress(address) && !address.endsWith('.eth')}>
+      <input type="text" class="address-input" data-index={i} placeholder="Address or ENS (0x0...)" on:keypress={e => e.key === "Enter" ? addAddress() : null} bind:value={addresses[i]} class:invalid={address.length > 0 && !ethers.utils.isAddress(address) && !address.endsWith('.eth') && !typingAddresses}>
       {#if addresses.length > 1}
         <button class="delete" title="remove" on:click={() => removeAddress(i)}><i class="icofont-delete" /></button>
       {/if}
-      {#if address.length > 0 && !ethers.utils.isAddress(address) && !address.endsWith('.eth')}
+      {#if address.length > 0 && !ethers.utils.isAddress(address) && !address.endsWith('.eth') && !typingAddresses}
         <div class="invalid">
-          Please enter a valid ethereum address.
+          Please enter a valid ethereum address or ENS name.
         </div>
       {/if}
     </div>
@@ -231,33 +296,73 @@
 
 <!-- GIF -->
 {#if gifURI}
+  <hr>
   <img id="gif" src={gifURI} alt="">
   <br>
   <a href={gifURI} download="pgifer - {addresses[0]}{addresses.length > 1 ? `+${addresses.length - 1}` : ""}.gif">Download GIF</a>
 {/if}
 
 <!-- Loaded pfers -->
-{#each addresses as address, i}
-  {#if pferPromises[i] && pferPromises[i].length > 0}
-    <h3>{address}</h3>
-    <div class="pfers">
-      {#each pferPromises[i] as pferPromise }
-        <div class="pfer icofont-">
-          {#await pferPromise}
-            <!-- nothing -->
-          {:then { image }}
-            <img src={image} alt="">
-          {/await}
-        </div>
-      {/each}
+{#if generating}
+  <hr>
+  <h3>Loading...</h3>
+  <div class="pfers">
+    {#each pferPromises as pferPromise }
+      <div class="pfer icofont-">
+        {#await pferPromise}
+          <!-- nothing -->
+        {:then { image }}
+          <img src={image} alt="">
+        {/await}
+      </div>
+    {/each}
+  </div>
+{:else if pferImages.length > 0}
+  <hr>
+  <h3>Customize your GIF!</h3>
+  <ul>
+    <li>Drag and drop to reorder your pfers</li>
+    <li>Click to toggle a pfer</li>
+  </ul>
+  <div class="pfers" class:dragging={dragIndex > -1}>
+    {#each pferImages as image, i }
+      <!-- svelte-ignore a11y-click-events-have-key-events -->
+      <div
+        class="pfer icofont-"
+        class:disabled={disabledPfers.has(image.src)}
+        on:click={() => { disabledPfers.has(image.src) ? disabledPfers.delete(image.src) : disabledPfers.add(image.src); disabledPfers = disabledPfers; }}
+        style:transform="translateX({dragOverIndex == i ? 3 : ((dragOverIndex == i+1) ? -3 : 0)}px)"
+      >
+        <img src={image.src} alt="" draggable="true" on:dragstart={e => startDrag(e, i)} on:dragend={() => cancelDrag()}>
+        <div class="dropzone" class:hover={dragOverIndex == i} on:dragover|preventDefault={() => dragOver(i)} on:drop|preventDefault={e => onDrop(e, i)} />
+      </div>
+    {/each}
+    <div class="pfer-placeholder">
+      <div class="dropzone" class:hover={dragOverIndex == pferImages.length} on:dragover|preventDefault={() => dragOver(pferImages.length)} on:drop|preventDefault={e => onDrop(e, pferImages.length)} />
     </div>
-  {/if}
-{/each}
+  </div>
+  <br>
+  <button disabled={rendering}  on:click={() => renderGIF(pferImages.filter(i => !disabledPfers.has(i.src))).then(uri => gifURI = uri).catch(console.error)}>
+    {#if rendering}
+      Rendering <i class="icofont-spinner-alt-2 spin" />
+    {:else}
+      Update GIF
+    {/if}
+  </button>
+{/if}
 
 <!-- Log -->
 {#if runLog}
   <div id="overlay">
     <div class="logs">{@html runLog}</div>
+  </div>
+
+<!-- Render Overlay -->
+{:else if rendering}
+  <div id="overlay">
+    <div class="rendering">
+      Rendering <i class="icofont-spinner-alt-2 spin" />
+    </div>
   </div>
 {/if}
 
@@ -330,12 +435,18 @@
     margin-top: 1rem;
 	}
 
-  .pfer, .pfer > img {
+  .pfer, .pfer > img, .pfer-placeholder {
     position: relative;
     display: block;
     width: 48px;
     height: 48px;
     border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .pfer.disabled {
+    filter: grayscale(1);
+    opacity: 0.6;
   }
 
   .pfer > img {
@@ -355,6 +466,27 @@
     animation-iteration-count: infinite;
     animation-play-state: running;
     animation-timing-function: linear;
+  }
+
+  .dropzone {
+    display: none;
+    opacity: 0;
+    position: absolute;
+    width: 100%;
+    top: 0;
+    bottom: 0;
+    left: -50%;
+    background-color: dodgerblue;
+    z-index: 1;
+    border-radius: 8px;
+  }
+
+  .dragging .dropzone {
+    display: block;
+  }
+
+  .dropzone.hover {
+    opacity: 0.5;
   }
 
   .range-input {
@@ -388,5 +520,21 @@
     overflow-y: auto;
     border-radius: 1rem;
     background-color: #000c;
+  }
+
+  #overlay > .rendering {
+    border-radius: 1rem;
+    background-color: #000c;
+    padding: 1rem;
+    font-size: 24px;
+  }
+
+  .spin {
+    display: inline-block;
+    animation-name: spin;
+    animation-duration: 2s;
+    animation-iteration-count: infinite;
+    animation-play-state: running;
+    animation-timing-function: linear;
   }
 </style>
