@@ -1,5 +1,6 @@
 <script type="ts">
 	import { Contract, ethers } from "ethers";
+  import { tick } from "svelte";
   import { erc721 } from "../utils/erc721";
 
 	// Variables:
@@ -9,6 +10,9 @@
   let gifURI = "";
   let frameDuration = 100;
   let generating = false;
+
+  // Ethereum Provider:
+  const provider = new ethers.providers.JsonRpcProvider("https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161", 1);
 	
 	// Functions:
   const log = (msg: string) => {
@@ -20,20 +24,29 @@
   };
 
 	const generateGIF = async () => {
+
+    // Set vars:
     generating = true;
     addresses = addresses.filter(a => !!a);
     runLog = "";
     gifURI = "";
     pferPromises = addresses.map(a => []);
+
+    // Create debug vars:
+    let numPfers = 0;
+    let numImagesLoaded = 0;
+    let lastStep = "init";
+
     try {
       if(addresses.length < 1) return error("At least one address is required...");
+      addresses = await resolvedAddresses(addresses);
       for(const address of addresses) {
         if(!ethers.utils.isAddress(address)) return alert("One or more address is invalid.");
       }
 
       // Get pfer list:
+      lastStep = "fetching";
       log("Fetching your pfers...");
-      let numPfers = 0;
       let allPferPromises: typeof pferPromises[0] = [];
       for(let i = 0; i < addresses.length; i++) {
         pferPromises[i] = (await pfers(addresses[i])).map(x => x.data());
@@ -43,6 +56,7 @@
       log(`${numPfers} pfers found!\n`);
 
       // Wait for all to be resolved:
+      lastStep = "resolving";
       log("Resolving pfer data...");
       const res = await Promise.all(allPferPromises);
       res.sort((a,b) => {
@@ -53,16 +67,20 @@
       log("Resolved all pfer data successfully!\n");
 
       // Create image elements:
+      lastStep = "loading";
       log("Fetching pfer images...");
       const images = res.map(x => { const image = new Image(); image.src = x.image; return image; });
-      await Promise.all(images.map(x => new Promise((resolve) => {
+      await Promise.all(images.map(x => new Promise<void>((resolve, reject) => {
         x.onload = () => {
-          setTimeout(resolve, 0);
+          numImagesLoaded++;
+          resolve();
         };
+        x.onerror = reject;
       })));
       log("Fetched all pfer images!\n");
 
       // Create GIF:
+      lastStep = "generating";
       log("Creating your personalized GIF. This may take a while...");
       var gif = new GIF({
         workers: 2,
@@ -86,6 +104,9 @@
     } catch(err) {
       console.error(err);
       error("Failed to generate GIF... Please check the logs or reload the page and retry.");
+      if(lastStep === 'loading' && numImagesLoaded > numPfers / 2) {
+        log("<i>Note: It seems like most of your pfers loaded, but some of them may have resolved incorrectly. Please reload the page and try again.</i>");
+      }
     } finally {
       generating = false;
     }
@@ -103,7 +124,7 @@
     const promises: Promise<any>[] = [];
     for(const key in nftContracts) {
       promises.push((async () => {
-        const contract = new Contract(nftContracts[key].contract, erc721, new ethers.providers.JsonRpcProvider("https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161", 1));
+        const contract = new Contract(nftContracts[key].contract, erc721, provider);
         const addToken = (tokenId: ethers.BigNumberish) => {
           avatarPromises.push({ data: () => (async () => {
             const tokenURI = await contract.tokenURI(tokenId);
@@ -148,10 +169,33 @@
     return avatarPromises;
   };
 
+  const addAddress = () => {
+    const index = addresses.length;
+    addresses = [...addresses, ""];
+    tick().then(() => {
+      (document.querySelector(`.address-input[data-index="${index}"]`) as HTMLInputElement | null)?.focus();
+    });
+  };
+
   const removeAddress = (index: number) => {
     if(addresses.length > 1) {
       addresses = addresses.filter((v, i) => i !== index);
     }
+  };
+
+  const resolvedAddresses = async (resolvables: string[]) => {
+    const addresses = [...resolvables];
+    for(let i = 0; i < resolvables.length; i++) {
+      if(addresses[i].toLowerCase().endsWith('.eth')) {
+        const address = await provider.resolveName(addresses[i]);
+        if(address) {
+          addresses[i] = address;
+        } else {
+          addresses[i] = "resolution failed: (" + addresses[i] + ")";
+        }
+      }
+    }
+    return addresses;
   };
 
 </script>
@@ -163,18 +207,18 @@
 <div id="inputs">
   {#each addresses as address, i}
     <div class="address">
-      <input type="text" placeholder="Address (0x0...)" bind:value={addresses[i]} class:invalid={address.length > 0 && !ethers.utils.isAddress(address)}>
+      <input type="text" class="address-input" data-index={i} placeholder="Address or ENS (0x0...)" on:keypress={e => e.key === "Enter" ? addAddress() : null} bind:value={addresses[i]} class:invalid={address.length > 0 && !ethers.utils.isAddress(address) && !address.endsWith('.eth')}>
       {#if addresses.length > 1}
         <button class="delete" title="remove" on:click={() => removeAddress(i)}><i class="icofont-delete" /></button>
       {/if}
-      {#if address.length > 0 && !ethers.utils.isAddress(address)}
+      {#if address.length > 0 && !ethers.utils.isAddress(address) && !address.endsWith('.eth')}
         <div class="invalid">
           Please enter a valid ethereum address.
         </div>
       {/if}
     </div>
   {/each}
-  <button title="Add another address" on:click={() => addresses = [...addresses, ""]}><i class="icofont-ui-add"/> Address</button>
+  <button title="Add another address" on:click={addAddress}><i class="icofont-ui-add"/> Address</button>
   <div class="range-input">
     <strong>Frame Duration:</strong>
     <input type="range" min={10} max={1000} step={10} bind:value={frameDuration}>
