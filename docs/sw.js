@@ -1,5 +1,5 @@
-const cacheName = `0.1.1`; // Change value to force update
-const filesToCache = `["./","build/bundle.js","build/bundle.css","CNAME","example.gif","favicon.png","gif.js","gif.js.map","gif.worker.js","gif.worker.js.map","icofont/fonts/icofont.woff","icofont/fonts/icofont.woff2","icofont/icofont.min.css","index.html"]`; // Generated filenames as string array
+const cacheName = `0.1.2`; // Change value to force update
+const filesToCache = `["./","build/bundle.js","build/bundle.css","example.gif","favicon.png","gif.js","gif.js.map","gif.worker.js","gif.worker.js.map","icofont/fonts/icofont.woff","icofont/fonts/icofont.woff2","icofont/icofont.min.css","index.html"]`; // Generated filenames as string array
 
 self.addEventListener("install", event => {
 	// Kick out the old service worker
