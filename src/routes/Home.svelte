@@ -3,10 +3,12 @@
   import { erc721 } from "../utils/erc721";
 
 	// Variables:
-	let address = "";
-  let pferPromises: Promise<{ metadata: any, image: string }>[] = [];
+	let addresses = [""];
+  let pferPromises: Promise<{ metadata: any, image: string }>[][] = [[]];
   let runLog = "";
   let gifURI = "";
+  let frameDuration = 100;
+  let generating = false;
 	
 	// Functions:
   const log = (msg: string) => {
@@ -18,20 +20,31 @@
   };
 
 	const generateGIF = async () => {
+    generating = true;
+    addresses = addresses.filter(a => !!a);
     runLog = "";
     gifURI = "";
-    pferPromises = [];
+    pferPromises = addresses.map(a => []);
     try {
-      if(!address) return error("Please reload the page and enter an address before generating.");
+      if(addresses.length < 1) return error("At least one address is required...");
+      for(const address of addresses) {
+        if(!ethers.utils.isAddress(address)) return alert("One or more address is invalid.");
+      }
 
       // Get pfer list:
       log("Fetching your pfers...");
-      pferPromises = (await pfers()).map(x => x.data());
-      log(`${pferPromises.length} pfers found!\n`);
+      let numPfers = 0;
+      let allPferPromises: typeof pferPromises[0] = [];
+      for(let i = 0; i < addresses.length; i++) {
+        pferPromises[i] = (await pfers(addresses[i])).map(x => x.data());
+        allPferPromises = allPferPromises.concat(pferPromises[i]);
+        numPfers += pferPromises[i].length;
+      }
+      log(`${numPfers} pfers found!\n`);
 
       // Wait for all to be resolved:
       log("Resolving pfer data...");
-      const res = await Promise.all(pferPromises);
+      const res = await Promise.all(allPferPromises);
       res.sort((a,b) => {
         return a.metadata.attributes.filter((x: any) => x.trait_type === "Background")[0].value < 
           b.metadata.attributes.filter((x: any) => x.trait_type === "Background")[0].value ? 
@@ -60,7 +73,7 @@
       
       // Add image elements:
       for(let i = 0; i < images.length; i++) {
-        gif.addFrame(images[i], { delay: 100 });
+        gif.addFrame(images[i], { delay: frameDuration });
       }
       
       // Render:
@@ -73,10 +86,12 @@
     } catch(err) {
       console.error(err);
       error("Failed to generate GIF... Please check the logs or reload the page and retry.");
+    } finally {
+      generating = false;
     }
 	};
 
-	const pfers = async(): Promise<{ data: () => Promise<{ metadata: any, image: string }>, category: string }[]> => {
+	const pfers = async(address: string): Promise<{ data: () => Promise<{ metadata: any, image: string }>, category: string }[]> => {
     const nftContracts: Record<string, { contract: string, category: string, unique?: boolean }> = {
       pfer: {
         contract: "0xBCC664B1E6848caba2Eb2f3dE6e21F81b9276dD8",
@@ -133,6 +148,12 @@
     return avatarPromises;
   };
 
+  const removeAddress = (index: number) => {
+    if(addresses.length > 1) {
+      addresses = addresses.filter((v, i) => i !== index);
+    }
+  };
+
 </script>
 
 <!-- Title -->
@@ -140,28 +161,54 @@
 
 <!-- Inputs -->
 <div id="inputs">
-	<input type="text" placeholder="Address (0x0...)" bind:value={address}>
-	<button on:click={generateGIF}>GIF My Flock!</button>
+  {#each addresses as address, i}
+    <div class="address">
+      <input type="text" placeholder="Address (0x0...)" bind:value={addresses[i]} class:invalid={address.length > 0 && !ethers.utils.isAddress(address)}>
+      {#if addresses.length > 1}
+        <button class="delete" title="remove" on:click={() => removeAddress(i)}><i class="icofont-delete" /></button>
+      {/if}
+      {#if address.length > 0 && !ethers.utils.isAddress(address)}
+        <div class="invalid">
+          Please enter a valid ethereum address.
+        </div>
+      {/if}
+    </div>
+  {/each}
+  <button title="Add another address" on:click={() => addresses = [...addresses, ""]}><i class="icofont-ui-add"/> Address</button>
+  <div class="range-input">
+    <strong>Frame Duration:</strong>
+    <input type="range" min={10} max={1000} step={10} bind:value={frameDuration}>
+    <span>
+      <input type="number" bind:value={frameDuration} min={10} max={1000} step={10}> (ms)
+    </span>
+  </div>
+  <button on:click={generateGIF}>GIF My Flock!</button>
 </div>
 
 <!-- GIF -->
 {#if gifURI}
   <img id="gif" src={gifURI} alt="">
-  <a href={gifURI} download="pgifer - {address}.gif">Download GIF</a>
+  <br>
+  <a href={gifURI} download="pgifer - {addresses[0]}{addresses.length > 1 ? `+${addresses.length - 1}` : ""}.gif">Download GIF</a>
 {/if}
 
 <!-- Loaded pfers -->
-<div id="pfers">
-  {#each pferPromises as pferPromise }
-    <div class="pfer icofont-">
-      {#await pferPromise}
-        <!-- nothing -->
-      {:then { image }}
-        <img src={image} alt="">
-      {/await}
+{#each addresses as address, i}
+  {#if pferPromises[i] && pferPromises[i].length > 0}
+    <h3>{address}</h3>
+    <div class="pfers">
+      {#each pferPromises[i] as pferPromise }
+        <div class="pfer icofont-">
+          {#await pferPromise}
+            <!-- nothing -->
+          {:then { image }}
+            <img src={image} alt="">
+          {/await}
+        </div>
+      {/each}
     </div>
-  {/each}
-</div>
+  {/if}
+{/each}
 
 <!-- Log -->
 {#if runLog}
@@ -174,13 +221,13 @@
 <style>
 	#inputs {
 		display: flex;
+    flex-direction: column;
 		justify-content: flex-start;
-		align-items: center;
+		align-items: flex-start;
 		gap: 1rem;
 	}
 
-	#inputs > input[type="text"],
-	#inputs > button {
+	input[type="text"], button {
 		padding: 1rem 1rem;
 		border-radius: 1rem;
 		border: 1px solid currentColor;
@@ -190,6 +237,40 @@
 		cursor: pointer;
 	}
 
+  .address {
+    position: relative;
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+
+  .address > input.invalid {
+    border: 1px solid crimson;
+  }
+
+  .address > div.invalid {
+    display: none;
+  }
+
+  .address:hover > div.invalid {
+    display: block;
+    position: absolute;
+    width: 100%;
+    left: 0;
+    bottom: calc(100% + 0.5rem);
+    padding: 0.5rem;
+    background-color: crimson;
+    color: white;
+    border-radius: 1rem;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  button.delete {
+    font-size: 20px;
+    padding: 0.5rem 1rem;
+  }
+
   #gif {
     display: block;
     width: 256px;
@@ -198,7 +279,7 @@
     margin-top: 1rem;
   }
 
-	#pfers {
+	.pfers {
 		display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
@@ -230,6 +311,16 @@
     animation-iteration-count: infinite;
     animation-play-state: running;
     animation-timing-function: linear;
+  }
+
+  .range-input {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 7px 12px;
+    border-radius: 1rem;
+    border: 1px solid currentColor;
   }
 
   #overlay {
