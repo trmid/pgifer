@@ -73,7 +73,7 @@ const generateSW = () => ({
 
 		// Replace markers:
 		let sw = template
-			.replace(/\$PACKAGE\_VERSION/g, nodePackage.version)
+			.replace(/\$PACKAGE\_VERSION/g, nodePackage.version + (production ? "" : ":" + Math.floor(Math.random() * 0xffffffff).toString(16)))
 			.replace(/\$FILES_TO_CACHE/g, JSON.stringify([...outFiles]));
 
 		// Append ipfs.min.js contents to worker:
