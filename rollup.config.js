@@ -59,7 +59,14 @@ const generateSW = () => ({
 		};
 		
 		// Read all files in out folder:
-		const outFiles = new Set(["./", "build/bundle.js", "build/bundle.css", ...recursiveFiles("./")].map(filename => filename.replace(/\\/g, "/")).filter(file => file !== 'sw.js' && file !== 'build/bundle.js.map' && file !== 'CNAME'));
+		const ignore = [
+			'sw.js',
+			'build/bundle.js.map',
+			'CNAME',
+			'example.gif',
+			'banner.jpg'
+		];
+		const outFiles = new Set(["./", "build/bundle.js", "build/bundle.css", ...recursiveFiles("./")].map(filename => filename.replace(/\\/g, "/")).filter(file => !ignore.includes(file)));
 
 		// Read sw-template:
 		const template = fs.readFileSync("sw-template.js", { encoding: 'utf-8' });
