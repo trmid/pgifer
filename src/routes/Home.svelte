@@ -11,6 +11,7 @@
   let runLog = "";
   let gifURI = "";
   let frameDuration = 100;
+  let size = 1200;
   let generating = false;
   let rendering = false;
   let typingAddresses = false;
@@ -74,20 +75,20 @@
       // Create image elements:
       lastStep = "loading";
       log("Fetching pfer images...");
-      pferImages = res.map(x => { const image = new Image(); image.src = x.image; return image; });
-      await Promise.all(pferImages.map(x => new Promise<void>((resolve, reject) => {
-        x.onload = () => {
-          numImagesLoaded++;
-          resolve();
-        };
-        x.onerror = reject;
-      })));
+      pferImages = res.map(x => {
+        const image = new Image();
+        image.src = x.image;
+        return image;
+      });
+      await Promise.all(pferImages.map(image => { numImagesLoaded++; return loadImage(image); }));
       log("Fetched all pfer images!\n");
 
       // Create GIF:
       lastStep = "generating";
       log("Creating your personalized GIF. This may take a while...");
-      gifURI = await renderGIF(pferImages);
+      const uri = await renderGIF(pferImages);
+      if(!uri) return error("No pfers to render...");
+      gifURI = uri;
       runLog = "";
 
     } catch(err) {
@@ -102,19 +103,31 @@
 	};
 
   const renderGIF = async (images: HTMLImageElement[]) => {
-    return new Promise<string>((resolve, reject) => {
+    if(images.length == 0) {
+      return null;
+    }
+    return new Promise<string>(async (resolve, reject) => {
       try {
         rendering = true;
         var gif = new GIF({
           workers: 2,
           quality: 10,
-          width: 1200,
-          height: 1200
+          width: size,
+          height: size
         });
         
         // Add image elements:
         for(let i = 0; i < images.length; i++) {
-          gif.addFrame(images[i], { delay: frameDuration });
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if(!ctx) throw new Error("Missing ctx in canvas. Could not resize image.");
+          ctx.drawImage(images[i], 0, 0, size, size);
+          const image = new Image(size, size);
+          image.src = canvas.toDataURL();
+          await loadImage(image);
+          gif.addFrame(image, { delay: frameDuration });
         }
         
         // Render:
@@ -186,6 +199,15 @@
     }
     await Promise.allSettled(promises).catch(console.error);
     return avatarPromises;
+  };
+
+  const loadImage = (image: HTMLImageElement) => {
+    return new Promise<void>((resolve, reject) => {
+      image.onload = () => {
+        resolve();
+      };
+      image.onerror = reject;
+    });
   };
 
   const addAddress = () => {
@@ -284,14 +306,8 @@
     </div>
   {/each}
   <button title="Add another address" on:click={addAddress}><i class="icofont-ui-add"/> Address</button>
-  <div class="range-input">
-    <strong>Frame Duration:</strong>
-    <input type="range" min={10} max={1000} step={10} bind:value={frameDuration}>
-    <span>
-      <input type="number" bind:value={frameDuration} min={10} max={1000} step={10}> (ms)
-    </span>
-  </div>
   <button on:click={generateGIF}>GIF My Flock!</button>
+  <p id="disclaimer">Warning: resulting GIFs have fast changing colors and may cause visual discomfort.</p>
 </div>
 
 <!-- GIF -->
@@ -342,13 +358,32 @@
     </div>
   </div>
   <br>
-  <button disabled={rendering}  on:click={() => renderGIF(pferImages.filter(i => !disabledPfers.has(i.src))).then(uri => gifURI = uri).catch(console.error)}>
-    {#if rendering}
-      Rendering <i class="icofont-spinner-alt-2 spin" />
-    {:else}
-      Update GIF
-    {/if}
-  </button>
+  <div id="options">
+    <div class="range-input">
+      <strong>Frame Duration:</strong>
+      <input type="range" min={20} max={1000} step={10} bind:value={frameDuration}>
+      <span>
+        <input type="number" bind:value={frameDuration} min={20} max={1000} step={10}> (ms)
+      </span>
+    </div>
+    <div class="range-input">
+      <strong>Size:</strong>
+      <input type="range" min={16} max={1200} step={1} bind:value={size}>
+      <span>
+        <input type="number" bind:value={size} min={16} max={1200} step={1}> (px)
+      </span>
+    </div>
+    <div>
+      <button on:click={() => disabledPfers = new Set((disabledPfers.size > pferImages.length / 2) ? [] : pferImages.map(x => x.src))}>Toggle All <i class="icofont-adjust"></i></button>
+      <button disabled={rendering}  on:click={() => renderGIF(pferImages.filter(i => !disabledPfers.has(i.src))).then(uri => uri ? (gifURI = uri) : alert("No pfers to render!")).catch(console.error)}>
+        {#if rendering}
+          Rendering <i class="icofont-spinner-alt-2 spin" />
+        {:else}
+          Update GIF <i class="icofont-refresh"></i>
+        {/if}
+      </button>
+    </div>
+  </div>
 {/if}
 
 <!-- Log -->
@@ -420,11 +455,16 @@
     padding: 0.5rem 1rem;
   }
 
+  #disclaimer {
+    font-style: italic;
+    opacity: 0.6;
+  }
+
   #gif {
     display: block;
-    width: 256px;
-    height: 256px;
-    border-radius: 16px;
+    max-width: 256px;
+    max-height: 256px;
+    border-radius: 8%;
     margin-top: 1rem;
   }
 
@@ -440,13 +480,13 @@
     display: block;
     width: 48px;
     height: 48px;
-    border-radius: 8px;
+    border-radius: 8%;
     cursor: pointer;
   }
 
   .pfer.disabled {
-    filter: grayscale(1);
-    opacity: 0.6;
+    filter: grayscale(0.5);
+    opacity: 0.2;
   }
 
   .pfer > img {
@@ -487,6 +527,12 @@
 
   .dropzone.hover {
     opacity: 0.5;
+  }
+
+  #options {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
 
   .range-input {
