@@ -2,7 +2,7 @@
 
 <h3>What are pfers?</h3>
 <p>
-  pfers are 10'000 hand drawings of the cutest defender of defi.
+  <a href="https://nft.bueno.art/mint/gPPx56RqK8AndA39vRZki" target="_blank" rel="noreferrer">pfers</a> are 10'000 hand drawings of the cutest defender of defi.
 </p>
 <p>
   69% of royalties go towards Friends of Pooly and their mission to Defend Defi, securing an Open Web3 through the power of Community.
