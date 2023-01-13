@@ -27,7 +27,7 @@
 
   main {
     max-width: 1024px;
-    margin: auto 0;
+    margin: 0 auto;
     padding: 1rem;
   }
 </style>
