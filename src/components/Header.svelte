@@ -3,7 +3,7 @@
 </script>
 
 <header>
-  <img src="favicon.png" alt="">
+  <img src="small-example.gif" alt="">
   <h3>pgifer</h3>
   <a href="/" use:link>Home</a>
   <a href="/about" use:link>About</a>
